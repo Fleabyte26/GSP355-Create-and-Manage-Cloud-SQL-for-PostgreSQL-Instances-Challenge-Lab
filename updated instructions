@@ -1,47 +1,60 @@
 Markdown
 # GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
 
-## Environment Variables Setup
-Run this block in **Cloud Shell** before executing tasks. Ensure you replace the placeholder values with the exact credentials from your Qwiklabs details pane.
+## Automated Environment Setup
+Copy and paste this entire block directly into your **Cloud Shell Terminal**. It automatically queries your active GCP project to dynamically set your region, zone, project ID, and lab username.
 
 ```bash
-# Set your lab variables
-export REGION="<YOUR_LAB_REGION>"             # e.g., us-central1
-export ZONE="<YOUR_LAB_ZONE>"                 # e.g., us-central1-a
+# Auto-detect Zone and Region from postgres-vm
+export ZONE=$(gcloud compute instances list --filter="name=postgres-vm" --format="value(zone)")
+export REGION=${ZONE%-*}
+
+# Auto-detect Project ID and Student Username
 export PROJECT_ID=$(gcloud config get-value project)
+export DB_USER=$(gcloud config get-value account)
+
+# Lab specific resource names
 export DB_NAME="orders"
 export MIGRATION_JOB="orders-migration"
-export CLOUD_SQL_INSTANCE="<YOUR_MIGRATED_INSTANCE_ID>" # from lab instructions (e.g., postgres-orders)
-export DB_USER="<YOUR_QWIKLABS_USERNAME>"    # e.g., student-xx@qwiklabs.net
+export CLOUD_SQL_INSTANCE="postgres-orders"
 
-# Set defaults to avoid empty parameter errors
+# Set regional and zonal defaults to prevent empty parameter flags
 gcloud config set compute/region $REGION
 gcloud config set compute/zone $ZONE
+
+# Verify discovered variables
+echo "========================================"
+echo "REGION:             $REGION"
+echo "ZONE:               $ZONE"
+echo "PROJECT_ID:         $PROJECT_ID"
+echo "DB_USER:            $DB_USER"
+echo "CLOUD_SQL_INSTANCE: $CLOUD_SQL_INSTANCE"
+echo "========================================"
 Task 1: Migrate Standalone PostgreSQL to Cloud SQL
-1. Configure the Source Database VM
-SSH into postgres-vm from Cloud Shell or the Cloud Console:
+1. Configure the Source VM (postgres-vm)
+SSH into postgres-vm and add the missing primary key required by PostgreSQL logical replication (pglogical):
 
 Bash
 gcloud compute ssh postgres-vm --zone=$ZONE
-Inside postgres-vm, configure PostgreSQL for logical replication and add the missing primary key:
+Inside postgres-vm, execute:
 
 Bash
-# Switch to postgres user and connect to the orders database
+# Add missing primary key to the distribution_centers table
 sudo -u postgres psql -d orders -c "ALTER TABLE distribution_centers ADD PRIMARY KEY (id);"
 
-# Ensure the pglogical extension is active
+# Ensure the pglogical extension is created
 sudo -u postgres psql -d orders -c "CREATE EXTENSION IF NOT EXISTS pglogical;"
 
-# Exit the VM
+# Exit the VM back to Cloud Shell
 exit
-2. Create DMS Connection Profile & Start Migration Job
+2. Create Connection Profile & Run Continuous Migration Job
 Run in Cloud Shell:
 
 Bash
-# Get the internal IP of postgres-vm
+# Get internal IP of postgres-vm
 VM_INTERNAL_IP=$(gcloud compute instances describe postgres-vm --zone=$ZONE --format='get(networkInterfaces[0].networkIP)')
 
-# Create Connection Profile for the source VM
+# Create source connection profile
 gcloud database-migration connection-profiles create postgresql postgres-vm-profile \
     --region=$REGION \
     --host=$VM_INTERNAL_IP \
@@ -50,7 +63,7 @@ gcloud database-migration connection-profiles create postgresql postgres-vm-prof
     --password="supersecret!" \
     --provider=POSTGRESQL
 
-# Create and run the continuous migration job
+# Create continuous migration job
 gcloud database-migration migration-jobs create $MIGRATION_JOB \
     --region=$REGION \
     --source=postgres-vm-profile \
@@ -58,63 +71,62 @@ gcloud database-migration migration-jobs create $MIGRATION_JOB \
     --type=CONTINUOUS \
     --connectivity-vpc=default
 
-# Start the job
+# Start migration job
 gcloud database-migration migration-jobs start $MIGRATION_JOB --region=$REGION
-Task 2: Promote Cloud SQL to Stand-Alone Instance
-1. Monitor Migration Progress (Fixed Watch Command)
-Note: We dynamically detect $REGION so the --region argument is never empty.
+Task 2: Promote Cloud SQL to a Stand-Alone Instance
+1. Monitor Migration Progress
+Run this command to monitor the continuous replication sync status without parameter drop errors:
 
 Bash
-# Check migration job status until PHASE shows CDC / RUNNING
 watch -n 5 "gcloud database-migration migration-jobs describe $MIGRATION_JOB --region=\$(gcloud config get-value compute/region) --format='table(state,phase)'"
-(Press Ctrl + C once the status transitions to RUNNING or change data capture).
+(Press Ctrl + C once the table shows STATE: RUNNING and PHASE: CDC or change-data-capture).
 
-2. Promote the Cloud SQL Instance
-Promote via gcloud CLI (or select Promote inside Database Migration > Migration Jobs in the Console):
+2. Promote to Standalone Instance
+Execute the promotion directly from the CLI:
 
 Bash
 gcloud database-migration migration-jobs promote $MIGRATION_JOB \
     --region=$REGION \
     --quiet
-Wait 2–3 minutes for the instance to detach and finish restarting as a standalone instance.
+Wait 2–3 minutes for Cloud SQL to detach from the source and finalize standalone restart.
 
 Task 3: Secure the Database Using IAM DB Authentication
-Enable IAM DB Authentication flag:
+Enable IAM DB Authentication on the Cloud SQL instance:
 
 Bash
 gcloud sql instances patch $CLOUD_SQL_INSTANCE \
     --database-flags=cloudsql.iam_authentication=on
-Authorize the postgres-vm external IP on Cloud SQL:
+Authorize postgres-vm's external IP to connect to Cloud SQL:
 
 Bash
 VM_EXT_IP=$(gcloud compute instances describe postgres-vm --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
 gcloud sql instances patch $CLOUD_SQL_INSTANCE \
     --authorized-networks=$VM_EXT_IP
-Add Cloud IAM user:
+Create the Cloud IAM database user:
 
 Bash
 gcloud sql users create $DB_USER \
     --instance=$CLOUD_SQL_INSTANCE \
     --type=CLOUD_IAM_USER
-Grant SELECT permissions inside the database:
+Grant SELECT permissions inside the PostgreSQL database:
 
 Bash
 gcloud sql connect $CLOUD_SQL_INSTANCE --user=postgres --quiet
-(When prompted for password, enter supersecret!)
+(When prompted for password, enter: supersecret!)
 
 SQL
 \c orders;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO "$DB_USER";
 \q
-Task 4: Point-in-Time Recovery (PITR)
-Enable Point-in-Time Recovery and automated backups:
+Task 4: Configure Point-in-Time Recovery (PITR) & Storage
+Enable automated backups and Point-in-Time Recovery:
 
 Bash
 gcloud sql instances patch $CLOUD_SQL_INSTANCE \
     --enable-point-in-time-recovery \
     --enable-bin-log
-Verify clone creation if specified in lab requirements (postgres-orders-pitr):
+Create a clone instance if required by the lab checkpoint:
 
 Bash
 gcloud sql instances clone $CLOUD_SQL_INSTANCE${CLOUD_SQL_INSTANCE}-pitr
