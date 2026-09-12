@@ -1,12 +1,12 @@
-Markdown
-# GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
+GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
+Lab Name: Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
 
-* **Lab Name:** Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
-* **Lab Code:** GSP355
-* **Estimated Completion Time:** ~12–15 minutes
-* **Target Score:** 100 / 100
+Lab Code: GSP355
 
----
+Estimated Completion Time: ~12–15 minutes
+
+Target Score: 100 / 100
+
 Step 0: Set Dynamic Lab Variables
 Run this in Cloud Shell to detect your project, instances, and network IP addresses.
 
@@ -42,7 +42,7 @@ Bash
 gcloud services enable datamigration.googleapis.com servicenetworking.googleapis.com --quiet
 gcloud sql instances patch "$DEST_INSTANCE" --network=default --no-assign-ip --quiet
 Step 2: Configure Source VM & Database
-Generates the setup script and runs it on the source VM via SSH.
+Generates the setup script and executes it on the source VM via SSH.
 
 Bash
 cat << 'EOF' > vm_setup.sh
@@ -106,8 +106,7 @@ gcloud database-migration connection-profiles create postgresql vm-source \
     --password="DMS_1s_cool!" \
     --no-async
 Step 4: Migration Job Creation, Sync & Promotion
-Action in Google Cloud Console:
-
+Part A: Google Cloud Console UI
 Go to Database Migration > Migration jobs > click Create migration job.
 
 Set Job name: orders-migration.
@@ -126,10 +125,9 @@ Set connectivity to VPC peering with network: default.
 
 Click Test Job, then click Create & Start Job.
 
-🟢 CHECK PROGRESS: Check Task 1 in lab instructions (once status shows Starting or Running).
+🟢 CHECK PROGRESS: Check Task 1 in lab instructions once status shows Starting or Running.
 
-Action in Cloud Shell (Wait for CDC phase and promote):
-
+Part B: Cloud Shell (Wait for CDC Phase & Promote)
 Bash
 echo "Waiting for migration job 'orders-migration' to reach CDC phase..."
 while [ "$(gcloud database-migration migration-jobs describe orders-migration --region="$REGION" --format='value(phase)' 2>/dev/null)" != "CDC" ]; do
@@ -191,4 +189,4 @@ while [ "$(gcloud sql instances describe postgres-orders-pitr --format='value(st
 done
 
 echo "Clone is ready! Challenge lab complete."
-🟢 CHECK PROGRESS: Check T
+🟢 CHECK PROGRESS: Check Task 4 in lab instructions (100/100 Points).
