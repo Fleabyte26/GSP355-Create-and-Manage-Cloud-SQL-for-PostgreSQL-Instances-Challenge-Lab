@@ -1,50 +1,46 @@
-GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
-Lab Name: Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
+=========================================================
+STEP 0: SET DYNAMIC LAB VARIABLES
+Run this in Cloud Shell to set up your environment:
 
-Lab Code: GSP355
+export PROJECT_ID=(gcloudconfigget−valueproject);exportIAM 
+U
+​
+ SER=(gcloud config get-value account);
+export VM_NAME=(gcloudcomputeinstanceslist−−filter="name=postgres−vmORname=postgresql−vm"−−format="value(name)"∣head−n1);exportZONE=(gcloud compute instances list --filter="name=postgres-vm OR name=postgresql-vm" --format="value(zone.basename())" | head -n 1);
+export VM_INTERNAL_IP=(gcloudcomputeinstanceslist−−filter="name=postgres−vmORname=postgresql−vm"−−format="value(networkInterfaces[0].networkIP)"∣head−n1);exportVM 
+E
+​
+ XT 
+I
+​
+ P=(gcloud compute instances list --filter="name=postgres-vm OR name=postgresql-vm" --format="value(networkInterfaces[0].accessConfigs[0].natIP)" | head -n 1);
+export REGION={ZONE%-*};
+export DEST_INSTANCE=(gcloud sql instances list --format="value(name)" | head -n 1);
+gcloud config set compute/region "$REGION";
+gcloud config set compute/zone "$ZONE";
 
-Estimated Completion Time: ~12–15 minutes
+echo "----------------------------------------";
+echo "PROJECT ID:    $PROJECT_ID";
+echo "STUDENT USER:  $IAM_USER";
+echo "SOURCE VM:     $VM_NAME";
+echo "DEST INSTANCE: $DEST_INSTANCE";
+echo "REGION:        $REGION";
+echo "ZONE:          $ZONE";
+echo "INTERNAL IP:   $VM_INTERNAL_IP";
+echo "EXTERNAL IP:   $VM_EXT_IP";
+echo "----------------------------------------";
 
-Target Score: 100 / 100
+=========================================================
+STEP 1: PRE-PATCH CLOUD SQL DESTINATION
+Run this in Cloud Shell:
 
-Step 0: Set Dynamic Lab Variables
-Run this in Cloud Shell to detect your project, instances, and network IP addresses.
+gcloud services enable datamigration.googleapis.com servicenetworking.googleapis.com --quiet;
+gcloud sql instances patch "$DEST_INSTANCE" --network=default --no-assign-ip --quiet;
 
-Bash
-export PROJECT_ID=$(gcloud config get-value project)
-export IAM_USER=$(gcloud config get-value account)
+=========================================================
+STEP 2: CONFIGURE SOURCE VM & DATABASE
+Run this in Cloud Shell:
 
-export VM_NAME=$(gcloud compute instances list --filter="name~postgres" --format="value(name)" | head -n 1)
-export ZONE=$(gcloud compute instances list --filter="name~postgres" --format="value(zone.basename())" | head -n 1)
-export VM_INTERNAL_IP=$(gcloud compute instances list --filter="name~postgres" --format="value(networkInterfaces[0].networkIP)" | head -n 1)
-export VM_EXT_IP=$(gcloud compute instances list --filter="name~postgres" --format="value(networkInterfaces[0].accessConfigs[0].natIP)" | head -n 1)
-
-export REGION=${ZONE%-*}
-export DEST_INSTANCE=$(gcloud sql instances list --format="value(name)" | head -n 1)
-
-gcloud config set compute/region "$REGION"
-gcloud config set compute/zone "$ZONE"
-
-echo "----------------------------------------"
-echo "PROJECT ID:    $PROJECT_ID"
-echo "STUDENT USER:  $IAM_USER"
-echo "SOURCE VM:     $VM_NAME"
-echo "DEST INSTANCE: $DEST_INSTANCE"
-echo "REGION:        $REGION"
-echo "ZONE:          $ZONE"
-echo "INTERNAL IP:   $VM_INTERNAL_IP"
-echo "EXTERNAL IP:   $VM_EXT_IP"
-echo "----------------------------------------"
-Step 1: Pre-Patch Cloud SQL Destination
-Attaches the Cloud SQL destination instance to the default VPC network to prevent DMS hangs.
-
-Bash
-gcloud services enable datamigration.googleapis.com servicenetworking.googleapis.com --quiet
-gcloud sql instances patch "$DEST_INSTANCE" --network=default --no-assign-ip --quiet
-Step 2: Configure Source VM & Database
-Generates the setup script and executes it on the source VM via SSH.
-
-Bash
 cat << 'EOF' > vm_setup.sh
 #!/bin/bash
 sudo apt update && sudo apt install -y postgresql-14-pglogical
@@ -91,102 +87,98 @@ SQL
 sudo systemctl restart postgresql@14-main
 EOF
 
-gcloud compute scp vm_setup.sh "$VM_NAME":~/vm_setup.sh --zone="$ZONE" --quiet
-gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="chmod +x ~/vm_setup.sh && ~/vm_setup.sh"
-Step 3: Create Source Connection Profile
-Registers the source database in Database Migration Service.
+gcloud compute scp vm_setup.sh "$VM_NAME":~/vm_setup.sh --zone="$ZONE" --quiet;
+gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="chmod +x ~/vm_setup.sh && ~/vm_setup.sh";
 
-Bash
-gcloud database-migration connection-profiles create postgresql vm-source \
-    --region="$REGION" \
-    --display-name="vmsource" \
-    --host="$VM_INTERNAL_IP" \
-    --port=5432 \
-    --username="replication_user" \
-    --password="DMS_1s_cool!" \
-    --no-async
-Step 4: Migration Job Creation, Sync & Promotion
-Part A: Google Cloud Console UI
-Go to Database Migration > Migration jobs > click Create migration job.
+=========================================================
+STEP 3: CREATE SOURCE CONNECTION PROFILE
+Run this in Cloud Shell:
 
-Set Job name: orders-migration.
+gcloud database-migration connection-profiles create postgresql vm-source --region="$REGION" --display-name="vmsource" --host="$VM_INTERNAL_IP" --port=5432 --username="replication_user" --password="DMS_1s_cool!" --no-async;
 
-Set Source database engine: PostgreSQL.
+=========================================================
+STEP 4: MIGRATION JOB CREATION, SYNC & PROMOTION
+Part A: UI Instructions (Cloud Console)
 
-Set Destination database engine: Cloud SQL for PostgreSQL.
+In Cloud Console, go to Database Migration > Migration jobs.
 
-Set Migration job type: Continuous.
+Click Create migration job.
 
-Select source: vm-source.
+Job name: orders-migration
 
-Select destination instance and enter root password: supersecret!
+Source engine: PostgreSQL
 
-Set connectivity to VPC peering with network: default.
+Destination engine: Cloud SQL for PostgreSQL
 
-Click Test Job, then click Create & Start Job.
+Migration job type: Continuous
 
-🟢 CHECK PROGRESS: Check Task 1 in lab instructions once status shows Starting or Running.
+Source profile: vm-source
 
-Part B: Cloud Shell (Wait for CDC Phase & Promote)
-Bash
-echo "Waiting for migration job 'orders-migration' to reach CDC phase..."
+Destination profile: Select destination instance, password: supersecret!
+
+Connectivity: VPC peering, network: default
+
+Click Test Job, then Create & Start Job.
+
+CHECK PROGRESS: Click check progress for Task 1 once job status shows Starting or Running.
+
+Part B: Promote Job (Cloud Shell)
+Run this command loop in Cloud Shell:
+
+echo "Waiting for migration job 'orders-migration' to reach CDC phase...";
 while [ "$(gcloud database-migration migration-jobs describe orders-migration --region="$REGION" --format='value(phase)' 2>/dev/null)" != "CDC" ]; do
-  echo "Current Phase: $(gcloud database-migration migration-jobs describe orders-migration --region="$REGION" --format='value(phase)' 2>/dev/null) - waiting 15s..."
-  sleep 15
-done
+echo "Current Phase: $(gcloud database-migration migration-jobs describe orders-migration --region="$REGION" --format='value(phase)' 2>/dev/null) - waiting 15s...";
+sleep 15;
+done;
 
-echo "CDC reached. Promoting migration job..."
-gcloud database-migration migration-jobs promote orders-migration --region="$REGION" --quiet
+echo "CDC reached. Promoting migration job...";
+gcloud database-migration migration-jobs promote orders-migration --region="$REGION" --quiet;
 
 while [ "$(gcloud sql instances describe "$DEST_INSTANCE" --format='value(state)' 2>/dev/null)" != "RUNNABLE" ]; do
-  echo "Waiting for destination instance to become RUNNABLE..."
-  sleep 10
-done
-echo "Destination is RUNNABLE."
-🟢 CHECK PROGRESS: Check Task 2 in lab instructions.
+echo "Waiting for destination instance to become RUNNABLE...";
+sleep 10;
+done;
+echo "Destination is RUNNABLE.";
 
-Step 5: IAM Database Authentication
-Enables Cloud IAM authentication and grants SELECT access to the student account.
+CHECK PROGRESS: Click check progress for Task 2.
 
-Bash
-gcloud sql instances patch "$DEST_INSTANCE" \
-    --authorized-networks="${VM_EXT_IP}/32" \
-    --assign-ip \
-    --database-flags=cloudsql.iam_authentication=on \
-    --quiet
+=========================================================
+STEP 5: IAM DATABASE AUTHENTICATION
+Run this in Cloud Shell:
 
-gcloud sql users create "$IAM_USER" \
-    --instance="$DEST_INSTANCE" \
-    --type=CLOUD_IAM_USER
+gcloud sql instances patch "DEST 
+I
+​
+ NSTANCE"−−authorized−networks="{VM_EXT_IP}/32" --assign-ip --database-flags=cloudsql.iam_authentication=on --quiet;
 
-SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddresses[0].ipAddress)")
+gcloud sql users create "$IAM_USER" --instance="$DEST_INSTANCE" --type=CLOUD_IAM_USER;
 
-gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c 'GRANT SELECT ON inventory_items TO \"$IAM_USER\";'"
-🟢 CHECK PROGRESS: Check Task 3 in lab instructions.
+SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddresses[0].ipAddress)");
 
-Step 6: Point-in-Time Recovery & Clone Testing
-Enables PITR, inserts a test record, and creates a point-in-time clone.
+gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c 'GRANT SELECT ON inventory_items TO "$IAM_USER";'";
 
-Bash
-gcloud sql instances patch "$DEST_INSTANCE" \
-    --backup-start-time 00:00 \
-    --enable-point-in-time-recovery \
-    --retained-transaction-log-days 3 \
-    --quiet
+CHECK PROGRESS: Click check progress for Task 3.
 
-TIME_STAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-echo "Recovery Point Timestamp: $TIME_STAMP"
+=========================================================
+STEP 6: POINT-IN-TIME RECOVERY & CLONE TESTING
+Run this in Cloud Shell:
 
-SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddresses[0].ipAddress)")
+gcloud sql instances patch "$DEST_INSTANCE" --backup-start-time 00:00 --enable-point-in-time-recovery --retained-transaction-log-days 3 --quiet;
 
-gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c \"INSERT INTO distribution_centers (name, latitude, longitude) VALUES ('Orlando Center', 28.5383, -81.3792);\""
+TIME_STAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ");
+echo "Recovery Point Timestamp: $TIME_STAMP";
 
-gcloud sql instances clone "$DEST_INSTANCE" postgres-orders-pitr --point-in-time "$TIME_STAMP"
+SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddresses[0].ipAddress)");
+
+gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c "INSERT INTO distribution_centers (name, latitude, longitude) VALUES ('Orlando Center', 28.5383, -81.3792);"";
+
+gcloud sql instances clone "$DEST_INSTANCE" postgres-orders-pitr --point-in-time "$TIME_STAMP";
 
 while [ "$(gcloud sql instances describe postgres-orders-pitr --format='value(state)' 2>/dev/null)" != "RUNNABLE" ]; do
-  echo "Cloning instance from PITR logs... $(date +%T)"
-  sleep 15
-done
+echo "Cloning instance from PITR logs... $(date +%T)";
+sleep 15;
+done;
 
-echo "Clone is ready! Challenge lab complete."
-🟢 CHECK PROGRESS: Check Task 4 in lab instructions (100/100 Points).
+echo "Clone is ready! Challenge lab complete.";
+
+CHECK PROGRESS: Click check progress for Task 4 (100/100 Points).
