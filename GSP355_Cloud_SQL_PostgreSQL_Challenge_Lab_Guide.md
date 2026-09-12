@@ -137,14 +137,27 @@ gcloud database-migration connection-profiles create postgresql vm-source     --
 
 ### Step 4: Create, Start & Promote Continuous Migration Job
 
-#### A. Launch in Console or CLI:
-In **Cloud Shell**:
-```bash
-# Update draft migration job to default VPC and start:
-gcloud database-migration migration-jobs update orders-migration     --region=$REGION     --peer-vpc=default     --quiet
+#### A. Create & Start the Migration Job (Cloud Console UI):
 
-gcloud database-migration migration-jobs start orders-migration     --region=$REGION     --quiet
-```
+Go to Database Migration > Migration jobs and click + Create migration job.
+
+Get started:
+
+Job name: orders-migration
+
+Source database engine: PostgreSQL
+
+Destination database engine: Cloud SQL for PostgreSQL
+
+Migration job type: Continuous
+
+Define source: Select the vm-source profile you created.
+
+Define destination: Select your active Cloud SQL instance (e.g., postgres50-...) and enter the root password (supersecret!).
+
+Define connectivity: Select VPC peering and set the network to default.
+
+Test and click Create & Start Job.
 
 #### B. Monitor until CDC:
 ```bash
