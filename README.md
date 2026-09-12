@@ -7,17 +7,8 @@ Markdown
 * **Target Score:** 100 / 100
 
 ---
-GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
-Lab Name: Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
-
-Lab Code: GSP355
-
-Estimated Completion Time: ~12–15 minutes
-
-Target Score: 100 / 100
-
-Step 0: Initialize Dynamic Environment Variables (Cloud Shell)
-Discovers lab resources dynamically and sets your default region and zone.
+Step 0: Set Dynamic Lab Variables
+Run this in Cloud Shell to detect your project, instances, and network IP addresses.
 
 Bash
 export PROJECT_ID=$(gcloud config get-value project)
@@ -44,14 +35,14 @@ echo "ZONE:          $ZONE"
 echo "INTERNAL IP:   $VM_INTERNAL_IP"
 echo "EXTERNAL IP:   $VM_EXT_IP"
 echo "----------------------------------------"
-Step 1: Pre-Patch Destination Instance (Cloud Shell)
-Enables APIs and binds the Cloud SQL destination instance to the default VPC network.
+Step 1: Pre-Patch Cloud SQL Destination
+Attaches the Cloud SQL destination instance to the default VPC network to prevent DMS hangs.
 
 Bash
 gcloud services enable datamigration.googleapis.com servicenetworking.googleapis.com --quiet
 gcloud sql instances patch "$DEST_INSTANCE" --network=default --no-assign-ip --quiet
-Step 2: Configure Source VM & Database (Cloud Shell)
-Installs pglogical, appends required configurations, creates replication users, and adds missing keys.
+Step 2: Configure Source VM & Database
+Generates the setup script and runs it on the source VM via SSH.
 
 Bash
 cat << 'EOF' > vm_setup.sh
@@ -102,8 +93,8 @@ EOF
 
 gcloud compute scp vm_setup.sh "$VM_NAME":~/vm_setup.sh --zone="$ZONE" --quiet
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="chmod +x ~/vm_setup.sh && ~/vm_setup.sh"
-Step 3: Create Source Connection Profile (Cloud Shell)
-Creates the Database Migration Service connection profile pointing to the source database.
+Step 3: Create Source Connection Profile
+Registers the source database in Database Migration Service.
 
 Bash
 gcloud database-migration connection-profiles create postgresql vm-source \
@@ -114,31 +105,31 @@ gcloud database-migration connection-profiles create postgresql vm-source \
     --username="replication_user" \
     --password="DMS_1s_cool!" \
     --no-async
-Step 4: Create, Monitor & Promote Continuous Migration Job
-A. Create in Cloud Console UI
-Navigate to Database Migration > Migration jobs and click + Create migration job.
+Step 4: Migration Job Creation, Sync & Promotion
+Action in Google Cloud Console:
 
-Settings:
+Go to Database Migration > Migration jobs > click Create migration job.
 
-Job name: orders-migration
+Set Job name: orders-migration.
 
-Source database engine: PostgreSQL
+Set Source database engine: PostgreSQL.
 
-Destination database engine: Cloud SQL for PostgreSQL
+Set Destination database engine: Cloud SQL for PostgreSQL.
 
-Migration job type: Continuous
+Set Migration job type: Continuous.
 
-Define source: Select vm-source.
+Select source: vm-source.
 
-Define destination: Select destination instance and enter root password: supersecret!
+Select destination instance and enter root password: supersecret!
 
-Connectivity: Select VPC peering, network: default.
+Set connectivity to VPC peering with network: default.
 
-Click Test Job, then Create & Start Job.
+Click Test Job, then click Create & Start Job.
 
-🟢 CHECK PROGRESS: Check Task 1 once job status shows Starting or Running.
+🟢 CHECK PROGRESS: Check Task 1 in lab instructions (once status shows Starting or Running).
 
-B. Monitor CDC and Promote (Cloud Shell)
+Action in Cloud Shell (Wait for CDC phase and promote):
+
 Bash
 echo "Waiting for migration job 'orders-migration' to reach CDC phase..."
 while [ "$(gcloud database-migration migration-jobs describe orders-migration --region="$REGION" --format='value(phase)' 2>/dev/null)" != "CDC" ]; do
@@ -154,10 +145,10 @@ while [ "$(gcloud sql instances describe "$DEST_INSTANCE" --format='value(state)
   sleep 10
 done
 echo "Destination is RUNNABLE."
-🟢 CHECK PROGRESS: Check Task 2 (Promote continuous migration job).
+🟢 CHECK PROGRESS: Check Task 2 in lab instructions.
 
-Step 5: Implement Cloud IAM Database Authentication (Cloud Shell)
-Configures IAM database authentication, creates the IAM database user, and grants SELECT permissions.
+Step 5: IAM Database Authentication
+Enables Cloud IAM authentication and grants SELECT access to the student account.
 
 Bash
 gcloud sql instances patch "$DEST_INSTANCE" \
@@ -173,10 +164,10 @@ gcloud sql users create "$IAM_USER" \
 SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddresses[0].ipAddress)")
 
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c 'GRANT SELECT ON inventory_items TO \"$IAM_USER\";'"
-🟢 CHECK PROGRESS: Check Task 3 (Implement Cloud IAM Database Authentication).
+🟢 CHECK PROGRESS: Check Task 3 in lab instructions.
 
-Step 6: Point-in-Time Recovery & Clone Testing (Cloud Shell)
-Configures point-in-time recovery on Cloud SQL, inserts test data, and provisions a point-in-time clone.
+Step 6: Point-in-Time Recovery & Clone Testing
+Enables PITR, inserts a test record, and creates a point-in-time clone.
 
 Bash
 gcloud sql instances patch "$DEST_INSTANCE" \
@@ -200,4 +191,4 @@ while [ "$(gcloud sql instances describe postgres-orders-pitr --format='value(st
 done
 
 echo "Clone is ready! Challenge lab complete."
-🟢 CHECK PROGRESS: Check Task 4 (100 / 100 Points).
+🟢 CHECK PROGRESS: Check T
