@@ -1,136 +1,162 @@
-# GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab
+# GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
+
+* Lab Name: Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
+* Lab Code: GSP355
+* Estimated Completion Time: ~12–15 minutes
+* Target Score: 100 / 100
 
 ---
 
-### Step 0: Setup Environment Variables
+### Step 0: Initialize Dynamic Environment Variables (Cloud Shell)
 
-👉 CUT & PASTE INTO CLOUD SHELL:
+👉 PASTE INTO CLOUD SHELL:
 
-export ZONE=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-zone])"); export REGION=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-region])"); [ -z "$REGION" ] && export REGION="${ZONE%-*}"; export PROJECT_ID=$(gcloud config get-value project); export DB_USER=$(gcloud config get-value account); export DB_NAME="orders"; export MIGRATION_JOB="orders-migration"; export CLOUD_SQL_INSTANCE="postgres-orders"; gcloud config set compute/region "$REGION"; gcloud config set compute/zone "$ZONE"; echo "----------------------------------------"; echo "PROJECT ID : $PROJECT_ID"; echo "ZONE       : $ZONE"; echo "REGION     : $REGION"; echo "USER       : $DB_USER"; echo "INSTANCE   : $CLOUD_SQL_INSTANCE"; echo "----------------------------------------"
-
-### Task 1: Migrate Standalone PostgreSQL to Cloud SQL
-
-👉 CUT & PASTE INTO CLOUD SHELL (SSH INTO VM):
-
-gcloud compute ssh postgres-vm --zone=$ZONE --quiet
+export PROJECT_ID=$(gcloud config get-value project); export IAM_USER=$(gcloud config get-value account); export DEST_INSTANCE=$(gcloud sql instances list --format="value(name)" | head -n 1); export REGION=$(gcloud sql instances describe $DEST_INSTANCE --format="value(region)"); export ZONE=$(gcloud compute instances list --filter="name~postgres" --format="value(zone.basename())" | head -n 1); export VM_INTERNAL_IP=$(gcloud compute instances list --filter="name~postgres" --format="value(networkInterfaces[0].networkIP)"); export VM_EXT_IP=$(gcloud compute instances list --filter="name~postgres" --format="value(networkInterfaces[0].accessConfigs[0].natIP)"); gcloud config set compute/region "$REGION"; gcloud config set compute/zone "$ZONE"; echo "----------------------------------------"; echo "PROJECT ID:    $PROJECT_ID"; echo "DEST INSTANCE: $DEST_INSTANCE"; echo "REGION:        $REGION"; echo "ZONE:          $ZONE"; echo "STUDENT USER:  $IAM_USER"; echo "INTERNAL IP:   $VM_INTERNAL_IP"; echo "----------------------------------------"
 
 ---
 
-👉 CUT & PASTE INSIDE POSTGRES-VM:
+### Step 1: Pre-Patch Destination Instance (Cloud Shell)
 
-sudo -u postgres psql -d orders -c "ALTER TABLE distribution_centers ADD PRIMARY KEY (id);"
-sudo -u postgres psql -d orders -c "CREATE EXTENSION IF NOT EXISTS pglogical;"
-exit
+Pre-attaches the destination instance to the default VPC to prevent DMS wizard hangs.
 
----
+👉 PASTE INTO CLOUD SHELL:
 
-👉 CUT & PASTE INTO CLOUD SHELL:
+gcloud services enable datamigration.googleapis.com servicenetworking.googleapis.com --quiet
 
-VM_INTERNAL_IP=$(gcloud compute instances describe postgres-vm --zone=$ZONE --format='get(networkInterfaces[0].networkIP)')
-
-gcloud database-migration connection-profiles create postgresql postgres-vm-profile \
-    --region=$REGION \
-    --host=$VM_INTERNAL_IP \
-    --port=5432 \
-    --username=postgres \
-    --password="supersecret!" \
-    --provider=POSTGRESQL
-
-gcloud database-migration migration-jobs create $MIGRATION_JOB \
-    --region=$REGION \
-    --source=postgres-vm-profile \
-    --destination-instance-id=$CLOUD_SQL_INSTANCE \
-    --type=CONTINUOUS \
-    --connectivity-vpc=default
-
-gcloud database-migration migration-jobs start $MIGRATION_JOB --region=$REGION
+gcloud sql instances patch $DEST_INSTANCE --network=default --no-assign-ip --quiet
 
 ---
 
-🟢 WHEN TO CLICK CHECK MY PROGRESS (TASK 1):
-* As soon as the command completes and your terminal returns to student_xx@cloudshell:~$
-* Click Task 1. It turns green.
+### Step 2: Configure Source VM (Cloud Shell Non-Interactive SSH)
+
+Installs pglogical, appends required configs, sets output_plugin_libraries, creates the replication user, and adds the missing primary key on inventory_items.
+
+👉 PASTE INTO CLOUD SHELL:
+
+cat << 'EOF' > vm_setup.sh
+#!/bin/bash
+sudo apt update && sudo apt install -y postgresql-14-pglogical
+sudo su - postgres -c "gsutil cp gs://cloud-training/gsp355/pg_hba_append.conf . 2>/dev/null || gsutil cp gs://cloud-training/gsp918/pg_hba_append.conf ."
+sudo su - postgres -c "gsutil cp gs://cloud-training/gsp355/postgresql_append.conf . 2>/dev/null || gsutil cp gs://cloud-training/gsp918/postgresql_append.conf ."
+sudo su - postgres -c "cat pg_hba_append.conf >> /etc/postgresql/14/main/pg_hba.conf"
+sudo su - postgres -c "cat postgresql_append.conf >> /etc/postgresql/14/main/postgresql.conf"
+echo "listen_addresses = '*'" | sudo tee -a /etc/postgresql/14/main/postgresql.conf
+echo "output_plugin_libraries = 'pglogical_output'" | sudo tee -a /etc/postgresql/14/main/postgresql.conf
+sudo systemctl restart postgresql@14-main
+
+sudo -u postgres psql << 'SQL'
+\c postgres
+CREATE EXTENSION IF NOT EXISTS pglogical;
+\c orders
+CREATE EXTENSION IF NOT EXISTS pglogical;
+ALTER TABLE inventory_items ADD PRIMARY KEY (id);
+CREATE USER replication_user WITH PASSWORD 'DMS_1s_cool!';
+ALTER USER replication_user WITH SUPERUSER REPLICATION LOGIN;
+ALTER DATABASE orders OWNER TO replication_user;
+GRANT CONNECT ON DATABASE orders TO replication_user;
+GRANT USAGE, CREATE ON SCHEMA public TO replication_user;
+GRANT USAGE ON SCHEMA pglogical TO replication_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO replication_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO replication_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA pglogical TO replication_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA pglogical TO replication_user;
+ALTER TABLE public.distribution_centers OWNER TO replication_user;
+ALTER TABLE public.inventory_items OWNER TO replication_user;
+ALTER TABLE public.order_items OWNER TO replication_user;
+ALTER TABLE public.products OWNER TO replication_user;
+ALTER TABLE public.users OWNER TO replication_user;
+\c postgres
+GRANT USAGE, CREATE ON SCHEMA public TO replication_user;
+GRANT USAGE ON SCHEMA pglogical TO replication_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO replication_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA pglogical TO replication_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA pglogical TO replication_user;
+SQL
+
+sudo systemctl restart postgresql@14-main
+EOF
+
+gcloud compute scp vm_setup.sh postgres-vm:~/vm_setup.sh --zone=$ZONE --quiet
+
+gcloud compute ssh postgres-vm --zone=$ZONE --quiet --command="chmod +x ~/vm_setup.sh && ~/vm_setup.sh"
 
 ---
 
-### Task 2: Promote Cloud SQL to Stand-Alone Instance
+### Step 3: Create Source Connection Profile (Cloud Shell)
 
-👉 CUT & PASTE INTO CLOUD SHELL (MONITOR SYNC):
+👉 PASTE INTO CLOUD SHELL:
 
-watch -n 5 "gcloud database-migration migration-jobs describe $MIGRATION_JOB --region=\$(gcloud config get-value compute/region) --format='table(state,phase)'"
-
----
-
-👉 ACTION REQUIRED IN TERMINAL:
-* Watch the table on screen.
-* Wait until STATE shows RUNNING and PHASE shows CDC.
-* Press Ctrl + C on your keyboard to exit the watch screen.
+gcloud database-migration connection-profiles create postgresql vm-source --region="$REGION" --display-name="vmsource" --host="$VM_INTERNAL_IP" --port=5432 --username="replication_user" --password="DMS_1s_cool!" --no-async
 
 ---
 
-👉 CUT & PASTE INTO CLOUD SHELL (PROMOTE):
+### Step 4: Create, Start & Promote Continuous Migration Job
 
-gcloud database-migration migration-jobs promote $MIGRATION_JOB --region=$REGION --quiet
+A. Create & Start in Cloud Console UI:
 
----
+1. Navigate to Database Migration > Migration jobs and click + Create migration job.
+2. Get started:
+   * Job name: orders-migration
+   * Source database engine: PostgreSQL
+   * Destination database engine: Cloud SQL for PostgreSQL
+   * Migration job type: Continuous
+3. Define source: Select vm-source.
+4. Define destination: Select your active destination instance and enter root password: supersecret!
+5. Define connectivity: Select VPC peering, network: default.
+6. Click Test Job, then click Create & Start Job.
 
-👉 CUT & PASTE INTO CLOUD SHELL (VERIFY READINESS):
+CHECK PROGRESS: Check Task 1 once status shows Starting or Running.
 
-gcloud sql instances describe $CLOUD_SQL_INSTANCE --format="value(state)"
+B. Monitor until CDC & Promote (Cloud Shell):
 
----
+👉 PASTE INTO CLOUD SHELL:
 
-🟢 WHEN TO CLICK CHECK MY PROGRESS (TASK 2):
-* Wait until the verify command outputs RUNNABLE.
-* Click Task 2. It turns green.
+watch -n 5 "gcloud database-migration migration-jobs describe orders-migration --region=$REGION --format='table(state,phase)'"
 
----
+* When PHASE displays CDC, press Ctrl + C.
 
-### Task 3: Secure the Database Using IAM DB Authentication
+👉 PASTE INTO CLOUD SHELL:
 
-👉 CUT & PASTE INTO CLOUD SHELL:
+gcloud database-migration migration-jobs promote orders-migration --region=$REGION --quiet
 
-gcloud sql instances patch $CLOUD_SQL_INSTANCE --database-flags=cloudsql.iam_authentication=on
+gcloud sql instances describe $DEST_INSTANCE --format="value(state)"
 
-VM_EXT_IP=$(gcloud compute instances describe postgres-vm --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-
-gcloud sql instances patch $CLOUD_SQL_INSTANCE --authorized-networks=$VM_EXT_IP
-
-gcloud sql users create $DB_USER --instance=$CLOUD_SQL_INSTANCE --type=CLOUD_IAM_USER
-
-gcloud sql connect $CLOUD_SQL_INSTANCE --user=postgres --quiet
-
----
-
-👉 MANUAL ACTION:
-* When prompted for password, enter: supersecret!
+CHECK PROGRESS: Check Task 2 once state outputs RUNNABLE.
 
 ---
 
-👉 CUT & PASTE INSIDE PSQL (POSTGRES PROMPT):
+### Step 5: Implement Cloud IAM Database Authentication (Task 3)
 
-\c orders;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO "$DB_USER";
-\q
+👉 PASTE INTO CLOUD SHELL:
 
----
+gcloud sql instances patch $DEST_INSTANCE --authorized-networks="${VM_EXT_IP}/32" --assign-ip --database-flags=cloudsql.iam_authentication=on --quiet
 
-🟢 WHEN TO CLICK CHECK MY PROGRESS (TASK 3):
-* As soon as \q brings you back to the student_xx@cloudshell:~$ prompt.
-* Click Task 3. It turns green.
+gcloud sql users create "$IAM_USER" --instance=$DEST_INSTANCE --type=CLOUD_IAM_USER
 
----
+SQL_IP=$(gcloud sql instances describe $DEST_INSTANCE --format="value(ipAddresses[0].ipAddress)")
 
-### Task 4: Configure Point-in-Time Recovery & Clone Instance
+gcloud compute ssh postgres-vm --zone=$ZONE --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c 'GRANT SELECT ON inventory_items TO \"$IAM_USER\";'"
 
-👉 CUT & PASTE INTO CLOUD SHELL:
-
-gcloud sql instances patch $CLOUD_SQL_INSTANCE --enable-point-in-time-recovery --enable-bin-log
-
-gcloud sql instances clone $CLOUD_SQL_INSTANCE ${CLOUD_SQL_INSTANCE}-pitr
+CHECK PROGRESS: Check Task 3.
 
 ---
 
-🟢 WHEN TO CLICK CHECK MY PROGRESS (TASK 4):
-* As soon as the clone command finishes and returns to your shell prompt.
-* Click Task 4. You will reach 100/100 points!
+### Step 6: Point-in-Time Recovery & Clone Testing (Task 4)
+
+👉 PASTE INTO CLOUD SHELL:
+
+gcloud sql instances patch $DEST_INSTANCE --backup-start-time 00:00 --enable-point-in-time-recovery --retained-transaction-log-days 3 --quiet
+
+TIME_STAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+echo "Recovery Point Timestamp: $TIME_STAMP"
+
+SQL_IP=$(gcloud sql instances describe $DEST_INSTANCE --format="value(ipAddresses[0].ipAddress)")
+
+gcloud compute ssh postgres-vm --zone=$ZONE --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c \"INSERT INTO distribution_centers (name, latitude, longitude) VALUES ('Orlando Center', 28.5383, -81.3792);\""
+
+gcloud sql instances clone $DEST_INSTANCE postgres-orders-pitr --point-in-time "$TIME_STAMP"
+
+while [ "$(gcloud sql instances describe postgres-orders-pitr --format='value(state)' 2>/dev/null)" != "RUNNABLE" ]; do echo "Cloning instance from PITR logs... $(date +%T)"; sleep 15; done; echo "Clone is ready!"
+
+CHECK PROGRESS: Check Task 4 for 100/100 points.
