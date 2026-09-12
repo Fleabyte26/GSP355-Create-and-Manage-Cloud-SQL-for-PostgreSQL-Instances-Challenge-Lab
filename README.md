@@ -6,26 +6,7 @@
 
 👉 CUT & PASTE INTO CLOUD SHELL:
 
-export ZONE=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-zone])")
-export REGION=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-region])")
-if [ -z "$REGION" ] && [ -n "$ZONE" ]; then
-  export REGION=${ZONE%-*}
-fi
-export PROJECT_ID=$(gcloud config get-value project)
-export DB_USER=$(gcloud config get-value account)
-export DB_NAME="orders"
-export MIGRATION_JOB="orders-migration"
-export CLOUD_SQL_INSTANCE="postgres-orders"
-gcloud config set compute/region "$REGION"
-gcloud config set compute/zone "$ZONE"
-echo "----------------------------------------"
-echo "PROJECT ID : $PROJECT_ID"
-echo "ZONE       : $ZONE"
-echo "REGION     : $REGION"
-echo "USER       : $DB_USER"
-echo "INSTANCE   : $CLOUD_SQL_INSTANCE"
-echo "----------------------------------------"
-
+export ZONE=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-zone])"); export REGION=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-region])"); [ -z "$REGION" ] && export REGION="${ZONE%-*}"; export PROJECT_ID=$(gcloud config get-value project); export DB_USER=$(gcloud config get-value account); export DB_NAME="orders"; export MIGRATION_JOB="orders-migration"; export CLOUD_SQL_INSTANCE="postgres-orders"; gcloud config set compute/region "$REGION"; gcloud config set compute/zone "$ZONE"; echo "----------------------------------------"; echo "PROJECT ID : $PROJECT_ID"; echo "ZONE       : $ZONE"; echo "REGION     : $REGION"; echo "USER       : $DB_USER"; echo "INSTANCE   : $CLOUD_SQL_INSTANCE"; echo "----------------------------------------"
 ---
 
 ### Task 1: Migrate Standalone PostgreSQL to Cloud SQL
