@@ -5,22 +5,34 @@ Markdown
 Copy and paste this entire block directly into your **Cloud Shell Terminal**. It automatically queries your active GCP project to dynamically set your region, zone, project ID, and lab username.
 
 ```bash
-# Auto-detect Zone and Region from postgres-vm
-export ZONE=$(gcloud compute instances list --filter="name=postgres-vm" --format="value(zone)")
+# Explicitly fetch zone directly from postgres-vm
+export ZONE=$(gcloud compute instances list --filter="name ~ postgres-vm" --format="value(zone.basename())" | head -n 1)
 export REGION=${ZONE%-*}
 
-# Auto-detect Project ID and Student Username
+# If zone is still blank, pull the default lab zone from compute metadata
+if [ -z "$ZONE" ]; then
+  export ZONE=$(gcloud compute project-info describe --format="value(commonInstanceMetadata.items[google-compute-default-zone])")
+  export REGION=${ZONE%-*}
+fi
+
 export PROJECT_ID=$(gcloud config get-value project)
 export DB_USER=$(gcloud config get-value account)
-
-# Lab specific resource names
 export DB_NAME="orders"
 export MIGRATION_JOB="orders-migration"
 export CLOUD_SQL_INSTANCE="postgres-orders"
 
-# Set regional and zonal defaults to prevent empty parameter flags
-gcloud config set compute/region $REGION
-gcloud config set compute/zone $ZONE
+# Set region and zone separately
+gcloud config set compute/region "$REGION"
+gcloud config set compute/zone "$ZONE"
+
+# Print to confirm both are populated
+echo "========================================"
+echo "REGION:             $REGION"
+echo "ZONE:               $ZONE"
+echo "PROJECT_ID:         $PROJECT_ID"
+echo "DB_USER:            $DB_USER"
+echo "CLOUD_SQL_INSTANCE: $CLOUD_SQL_INSTANCE"
+echo "========================================"
 
 # Verify discovered variables
 echo "========================================"
