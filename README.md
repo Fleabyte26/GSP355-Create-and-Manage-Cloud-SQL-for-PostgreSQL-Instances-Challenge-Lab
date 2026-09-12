@@ -1,3 +1,10 @@
+GSP355: Create and Manage Cloud SQL for PostgreSQL Instances - Challenge Lab Guide
+
+Lab Name: Create and Manage Cloud SQL for PostgreSQL Instances: Challenge Lab
+Lab Code: GSP355
+Estimated Completion Time: 12-15 minutes
+Target Score: 100 / 100
+
 =========================================================
 STEP 0: SET DYNAMIC LAB VARIABLES
 Run this in Cloud Shell to set up your environment:
@@ -120,7 +127,7 @@ Connectivity: VPC peering, network: default
 
 Click Test Job, then Create & Start Job.
 
-CHECK PROGRESS: Click check progress for Task 1 once job status shows Starting or Running.
+🟢 CHECK PROGRESS: Click check progress for Task 1 once job status shows Starting or Running.
 
 Part B: Promote Job (Cloud Shell)
 Run this command loop in Cloud Shell:
@@ -140,7 +147,7 @@ sleep 10;
 done;
 echo "Destination is RUNNABLE.";
 
-CHECK PROGRESS: Click check progress for Task 2.
+🟢 CHECK PROGRESS: Click check progress for Task 2.
 
 =========================================================
 STEP 5: IAM DATABASE AUTHENTICATION
@@ -157,7 +164,7 @@ SQL_IP=$(gcloud sql instances describe "$DEST_INSTANCE" --format="value(ipAddres
 
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --quiet --command="PGPASSWORD='supersecret!' psql -h '$SQL_IP' -U postgres -d orders -c 'GRANT SELECT ON inventory_items TO "$IAM_USER";'";
 
-CHECK PROGRESS: Click check progress for Task 3.
+🟢 CHECK PROGRESS: Click check progress for Task 3.
 
 =========================================================
 STEP 6: POINT-IN-TIME RECOVERY & CLONE TESTING
@@ -181,4 +188,4 @@ done;
 
 echo "Clone is ready! Challenge lab complete.";
 
-CHECK PROGRESS: Click check progress for Task 4 (100/100 Points).
+🟢 CHECK PROGRESS: Click check progress for Task 4 (100/100 Points).
