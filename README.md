@@ -10,7 +10,7 @@ Markdown
 
 ### Step 0: Initialize Dynamic Environment Variables (Cloud Shell)
 
-👉 **PASTE INTO CLOUD SHELL:**
+👉 **PASTE INTO CLOUD SHELL:** (One at a time)
 
 ```bash
 export PROJECT_ID=$(gcloud config get-value project)
