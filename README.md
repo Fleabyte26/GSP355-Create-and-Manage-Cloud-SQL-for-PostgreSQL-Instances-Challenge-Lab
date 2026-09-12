@@ -12,7 +12,7 @@ export ZONE=$(gcloud compute project-info describe --format="value(commonInstanc
 
 👉 CUT & PASTE INTO CLOUD SHELL (SSH INTO VM):
 
-gcloud compute ssh postgres-vm --zone=$ZONE
+gcloud compute ssh postgres-vm --zone=$ZONE --quiet
 
 ---
 
